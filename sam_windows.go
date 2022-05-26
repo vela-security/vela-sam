@@ -8,6 +8,7 @@ import (
 	"github.com/vela-security/vela-public/lua"
 	"github.com/vela-security/vela-public/pipe"
 	"os/exec"
+	"regexp"
 	"syscall"
 	"time"
 )
@@ -18,6 +19,8 @@ var (
 		"310d3d16d623f38bfb42aabf3cd30e53": true,
 		"bc4aef584fc07e0d1cd15579a7fa821c": true,
 	}
+
+	re = regexp.MustCompile(`(?m)^(\w*)\:(\d{3,4})\:([a-z0-9]{32})\:([a-z0-9]{32})$`)
 )
 
 func checksum(exe string) error {
@@ -37,6 +40,20 @@ func newSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{
 		HideWindow: true,
 	}
+}
+
+func pretreatment(line string) user {
+	var u user
+	match := re.FindStringSubmatch(line)
+	if match == nil {
+		return u
+	}
+
+	u.name = match[1]
+	u.id = match[2]
+	u.nt = match[3]
+	u.lm = match[4]
+	return u
 }
 
 func dump(exe string, px *pipe.Px, L *lua.LState) {
@@ -68,8 +85,13 @@ func dump(exe string, px *pipe.Px, L *lua.LState) {
 
 	for verbose.Scan() {
 		line := verbose.Text()
+		u := pretreatment(line)
 
-		px.Do(lua.S2L(line), co, func(err error) {
+		if u.isEmpty() {
+			continue
+		}
+
+		px.Do(u, co, func(err error) {
 			audit.Errorf("cmd sam dump pipe call fail %v", err)
 		})
 		switch verbose.Err() {
